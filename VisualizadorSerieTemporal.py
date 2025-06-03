@@ -21,7 +21,6 @@ variaveis_meteorologicas = {
 # =========================
 
 def carregar_dados(caminho):
-    """Carrega e prepara os dados do CSV."""
     df = pd.read_csv(
         caminho,
         sep=';', encoding='utf-8', decimal=',',
@@ -29,7 +28,6 @@ def carregar_dados(caminho):
     )
     df.columns = df.columns.str.strip()
     df['Hora (UTC)'] = df['Hora (UTC)'].astype(str).str.strip().str.zfill(4)
-    
     df['DataHora'] = pd.to_datetime(
         df['Data'].astype(str) + ' ' +
         df['Hora (UTC)'].str[:2] + ':' +
@@ -37,7 +35,6 @@ def carregar_dados(caminho):
         format='%d/%m/%Y %H:%M',
         errors='coerce'
     )
-
     df = df.dropna(subset=['DataHora'])
     df['AnoMes'] = df['DataHora'].dt.to_period('M')
     return df
@@ -47,17 +44,13 @@ def carregar_dados(caminho):
 # =========================
 
 def gerar_figure(df, variavel, tipo):
-    """Cria figura matplotlib com dados agrupados por mês."""
-
     if variavel not in variaveis_meteorologicas:
         messagebox.showerror("Erro", f"Variável '{variavel}' inválida.")
         return None
-
     col = variaveis_meteorologicas[variavel]
     if col not in df.columns:
         messagebox.showerror("Erro", f"Coluna '{col}' ausente no arquivo.")
         return None
-
     df[col] = pd.to_numeric(df[col], errors='coerce')
     df_filtrado = df.dropna(subset=[col])
     media_mensal = df_filtrado.groupby('AnoMes')[col].mean()
@@ -69,15 +62,12 @@ def gerar_figure(df, variavel, tipo):
         media_mensal.plot(kind='bar', ax=ax)
 
     ax.xaxis.set_major_locator(ticker.FixedLocator(range(len(media_mensal))))
-    
-    # Cria rótulos de mês no eixo X
     labels, ultimo_mes = [], None
     for periodo in media_mensal.index:
         mes = periodo.strftime('%b').capitalize()
         labels.append(mes if mes != ultimo_mes else '')
         ultimo_mes = mes
     ax.set_xticklabels(labels, rotation=45, ha='right')
-
     ax.set_title(f"Média mensal de {variavel}")
     ax.set_xlabel("Mês")
     ax.set_ylabel(f"{variavel} (média)")
@@ -86,18 +76,15 @@ def gerar_figure(df, variavel, tipo):
     return fig
 
 # =========================
-# EXIBIÇÃO DO GRÁFICO NA TELA
+# PLOTAGEM DO GRÁFICO
 # =========================
 
 def plotar_grafico_tk(df, variavel, tipo):
-    """Insere gráfico matplotlib dentro da interface CustomTkinter."""
     fig = gerar_figure(df, variavel, tipo)
     if not fig:
         return
-
     if hasattr(plotar_grafico_tk, 'canvas') and plotar_grafico_tk.canvas:
         plotar_grafico_tk.canvas.get_tk_widget().destroy()
-
     canvas = FigureCanvasTkAgg(fig, master=frame_grafico)
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -108,7 +95,6 @@ def plotar_grafico_tk(df, variavel, tipo):
 # =========================
 
 def carregar_csv():
-    """Abre diálogo de arquivo e carrega CSV escolhido."""
     global df_global
     caminho = filedialog.askopenfilename(filetypes=[("Arquivos CSV", "*.csv")])
     if not caminho:
@@ -120,63 +106,60 @@ def carregar_csv():
         messagebox.showerror("Erro ao carregar CSV", str(e))
 
 def executar_plot():
-    """Gatilho para gerar gráfico ao clicar no botão."""
     if df_global is None:
         messagebox.showwarning("Aviso", "Carregue um arquivo CSV primeiro.")
         return
-
     variavel = combobox_variavel.get()
     tipo = combobox_grafico.get()
     plotar_grafico_tk(df_global, variavel, tipo)
 
+def mostrar_tela_principal():
+    frame_inicio.pack_forget()
+    frame_principal.pack(padx=10, pady=10, fill="x")
+    frame_grafico.pack(fill="both", expand=True, padx=10, pady=10)
+
 # =========================
-# CONSTRUÇÃO DA INTERFACE
+# INTERFACE GRÁFICA
 # =========================
 
-# Configurações iniciais
-ctk.set_appearance_mode("dark")  # Modos: "light", "dark", "system"
-ctk.set_default_color_theme("blue")  # Temas: "blue", "green", "dark-blue"
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
-# Janela principal
 janela = ctk.CTk()
 janela.title("Visualizador de Séries Temporais")
 janela.geometry("800x600")
 
-# Frame principal
-frame_principal = ctk.CTkFrame(janela)
-frame_principal.pack(padx=10, pady=10, fill="x")
+# --------- Tela inicial ---------
+frame_inicio = ctk.CTkFrame(janela)
+frame_inicio.pack(fill="both", expand=True)
 
-# Botão: Carregar CSV
+titulo = ctk.CTkLabel(frame_inicio, text="Visualizador de Séries Temporais", font=ctk.CTkFont(size=28, weight="bold"))
+titulo.pack(pady=60)
+
+botao_iniciar = ctk.CTkButton(frame_inicio, text="Iniciar", command=mostrar_tela_principal, width=200, height=40)
+botao_iniciar.pack(pady=20)
+
+# --------- Tela principal ---------
+frame_principal = ctk.CTkFrame(janela)
+
 botao_carregar = ctk.CTkButton(frame_principal, text="Carregar CSV", command=carregar_csv)
 botao_carregar.grid(row=0, column=0, padx=5, pady=5)
 
-# Combobox: Variável
-combobox_variavel = ctk.CTkComboBox(
-    frame_principal, values=list(variaveis_meteorologicas.keys()),
-    width=150
-)
+combobox_variavel = ctk.CTkComboBox(frame_principal, values=list(variaveis_meteorologicas.keys()), width=150)
 combobox_variavel.grid(row=0, column=1, padx=5, pady=5)
 combobox_variavel.set("Temperatura")
 
-# Combobox: Tipo de gráfico
-combobox_grafico = ctk.CTkComboBox(
-    frame_principal, values=["Linhas", "Barras"],
-    width=100
-)
+combobox_grafico = ctk.CTkComboBox(frame_principal, values=["Linhas", "Barras"], width=100)
 combobox_grafico.grid(row=0, column=2, padx=5, pady=5)
 combobox_grafico.set("Linhas")
 
-# Botão: Gerar gráfico
 botao_gerar = ctk.CTkButton(frame_principal, text="Gerar Gráfico", command=executar_plot)
 botao_gerar.grid(row=0, column=3, padx=5, pady=5)
 
-# Frame para o gráfico
 frame_grafico = ctk.CTkFrame(janela)
-frame_grafico.pack(fill="both", expand=True, padx=10, pady=10)
 
 # =========================
-# INICIALIZA A JANELA
+# EXECUTA A JANELA
 # =========================
 
 janela.mainloop()
-
