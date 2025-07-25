@@ -379,7 +379,7 @@ with tab2:
         fig_maximas = px.bar(
             df_maximas, x="Ano", y="Precipitação Máxima (mm)",
             title=f"Máximas Anuais para Acumulação de {duracao_max}h",
-            text_auto='.2s'
+            text_auto=False # ALTERADO: Mudado de '.2s' para False para mostrar valores reais
         )
         # ALTERADO: Template do gráfico para 'plotly_dark'
         fig_maximas.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
@@ -433,27 +433,61 @@ with tab3:
         st.plotly_chart(fig_idf, use_container_width=True)
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-            # Salva o gráfico com fundo transparente para o PDF
-            fig_idf.write_image(tmpfile.name, scale=2, format="png", engine="kaleido")
+            # Salva o gráfico com fundo BRANCO para o PDF
+            # Crie uma cópia da figura e altere o template para "plotly_white" ou defina as cores explicitamente
+            fig_idf_for_pdf = go.Figure(fig_idf) # Cria uma cópia da figura
+            fig_idf_for_pdf.update_layout(template="plotly_white", paper_bgcolor='white', plot_bgcolor='white')
+            # Você também pode ajustar a cor do texto e das linhas para serem visíveis em fundo branco
+            fig_idf_for_pdf.update_layout(
+                font=dict(color="black"),  # Altera a cor do texto para preto
+                xaxis=dict(gridcolor="lightgrey", linecolor="black"),
+                yaxis=dict(gridcolor="lightgrey", linecolor="black")
+            )
+            # Garanta que as cores das linhas dos traços também sejam visíveis em fundo branco
+            for trace in fig_idf_for_pdf.data:
+                if isinstance(trace, go.Scatter):
+                    # Se as linhas são muito claras no modo dark, garanta que sejam escuras o suficiente no modo light
+                    if trace.line.color == '#D55E00': # Cor original Gumbel
+                        trace.line.color = '#D55E00' # Mantém se já for bom, ou muda para algo como 'darkorange'
+                    if trace.line.color == '#0072B2': # Cor original LP3
+                        trace.line.color = '#0072B2' # Mantém se já for bom, ou muda para algo como 'darkblue'
+
+            fig_idf_for_pdf.write_image(tmpfile.name, scale=2, format="png", engine="kaleido")
             st.session_state['grafico_path'] = tmpfile.name
         
-        col_tabela, col_stats = st.columns([3, 2])
-        with col_tabela:
-            st.subheader("Resultados")
-            st.dataframe(df_idf.style.format("{:.2f}"))
-            
-            csv_data = df_idf.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Baixar Tabela (CSV)", csv_data, f"curvas_IDF_{duracao_idf}h.csv", "text/csv")
-
-        with col_stats:
-            st.subheader("Ajuste Estatístico")
-            st.metric("Ajuste Gumbel (mu / beta)", f"{params_gumbel['mu']:.2f} / {params_gumbel['beta']:.2f} mm")
-            st.metric("Teste K-S (p-valor)", f"{params_gumbel['ks_p']:.3f}", 
-                      "Boa aderência" if params_gumbel['ks_p'] > 0.05 else "Aderência fraca (α=5%)")
+        # --- ALTERADO: AJUSTE ESTATÍSTICO AGORA ACIMA DA TABELA ---
+        st.subheader("Ajuste Estatístico")
         
-        with st.expander("Ver detalhes dos parâmetros e da série de máximas"):
-            st.write("**Parâmetros Gumbel:**", params_gumbel)
-            st.write("**Parâmetros Log-Pearson III:**", params_lp3)
+        st.markdown("---")
+        st.markdown("### **Distribuição Gumbel**")
+        col_mu, col_beta, col_ks = st.columns(3)
+        with col_mu:
+            st.metric(label="Parâmetro de Posição (mu)", value=f"{params_gumbel['mu']:.2f} mm")
+        with col_beta:
+            st.metric(label="Parâmetro de Escala (beta)", value=f"{params_gumbel['beta']:.2f} mm")
+        with col_ks:
+            st.metric(label="Teste K-S (p-valor)", value=f"{params_gumbel['ks_p']:.3f}", 
+                      delta="Boa aderência" if params_gumbel['ks_p'] > 0.05 else "Aderência fraca (α=5%)", delta_color="normal")
+        
+        st.markdown("---")
+        st.markdown("### **Distribuição Log-Pearson III**")
+        col_mean, col_std, col_skew = st.columns(3)
+        with col_mean:
+            st.metric(label="Média (log10)", value=f"{params_lp3['mean_log']:.3f}")
+        with col_std:
+            st.metric(label="Desvio Padrão (log10)", value=f"{params_lp3['std_log']:.3f}")
+        with col_skew:
+            st.metric(label="Coef. de Assimetria (log10)", value=f"{params_lp3['skew']:.3f}")
+        # --- FIM DA ALTERAÇÃO DO AJUSTE ESTATÍSTICO ---
+
+        # Tabela de Resultados (agora abaixo do Ajuste Estatístico)
+        st.subheader("Resultados")
+        st.dataframe(df_idf.style.format("{:.2f}"))
+        
+        csv_data = df_idf.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Baixar Tabela (CSV)", csv_data, f"curvas_IDF_{duracao_idf}h.csv", "text/csv")
+            
+        with st.expander("Ver detalhes da série de máximas anuais"):
             st.write(f"**Série de Máximas Anuais ({duracao_idf}h) utilizada:**")
             st.dataframe(serie_maximas)
 
