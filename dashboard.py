@@ -15,19 +15,20 @@ st.set_page_config(
     page_title="SAP-IDF | Análise Pluviométrica",
     page_icon="💧",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# --- ALTERADO: TEMA VISUAL ESCURO COM CSS CUSTOMIZADO ---
+# --- CSS CUSTOMIZADO COM LINK PARA O FONT AWESOME E ESTILOS PARA ÍCONES ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+    @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css');
 
     html, body, [class*="st-"] {
         font-family: 'Poppins', sans-serif;
     }
-
-    /* Cores do tema escuro */
+    
+    /* Cores do tema escuro - Mantidas como referência, mas aplicaremos diretamente */
     :root {
         --primary-color: #56B4E9; /* Azul claro para bom contraste */
         --background-color: #0F1116; /* Fundo principal escuro */
@@ -40,26 +41,23 @@ st.markdown("""
     /* Fundo principal */
     .stApp {
         background-color: var(--background-color);
+        color: var(--text-color); /* Usando a variável para consistência */
     }
 
     /* Headers */
-    h1, h2, h3 {
-        color: var(--text-color);
-    }
-            
-    h1 {
+    h1, h2, h3, [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2 {
+        color: #F8F8F8 !important;
         font-weight: 600;
     }
     
     h2 {
-        font-weight: 600;
         border-bottom: 2px solid var(--border-color);
         padding-bottom: 10px;
         margin-bottom: 20px;
     }
 
-    /* Estilo dos cards */
-    .stMetric, [data-testid="stMetric"], [data-testid="stExpander"], .stDataFrame {
+    /* Estilo dos cards e containers */
+    .stMetric, [data-testid="stMetric"], [data-testid="stExpander"], [data-testid="stVerticalBlockBorderWrapper"], .stDataFrame {
         border-radius: 10px;
         box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
         background-color: var(--secondary-background-color);
@@ -84,13 +82,20 @@ st.markdown("""
         padding: 10px 15px;
         transition: all 0.2s ease-in-out;
         border-bottom: 2px solid transparent;
-        color: var(--light-text-color);
+        color: #B0B0B0; /* Cinza claro para abas inativas */
     }
     .stTabs [aria-selected="true"] {
         background-color: transparent;
         color: var(--primary-color);
         border-bottom: 2px solid var(--primary-color);
         font-weight: 600;
+    }
+    
+    /* Alinha o ícone e o texto nas abas */
+    .stTabs [data-baseweb="tab"] [data-testid="stMarkdownContainer"] p {
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
             
     /* Botões */
@@ -106,12 +111,50 @@ st.markdown("""
         background-color: transparent;
         color: var(--primary-color);
     }
+
+    /* INPUTS DE TEXTO E SELECTBOX */
+    .stTextInput label, .stSelectbox label, .stNumberInput label, .stRadio label {
+        color: var(--text-color) !important;
+    }
+    .stTextInput div[data-baseweb="input"] input, .stSelectbox div[data-baseweb="select"] div[role="button"], .stNumberInput input {
+        color: var(--text-color) !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+
+    /* Cor do texto dentro de `st.info` */
+    .stAlert p {
+        color: var(--text-color) !important;
+    }
+    
+    /* Cor do texto de markdown e `st.write` */
+    .stMarkdown p, .stText {
+        color: var(--text-color) !important;
+    }
+
+    /* Estilo para centralizar métricas */
+    .centered-metric [data-testid="stMetricValue"] {
+        text-align: center;
+        width: 100%;
+    }
+    .centered-metric [data-testid="stMetricLabel"] {
+        text-align: center;
+        width: 100%;
+    }
+
+    /* ESCONDE A BARRA LATERAL E O BOTÃO DE ABRIR */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+    [data-testid="stSidebarToggleButton"] {
+        display: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# 2. FUNÇÕES AUXILIARES E CACHE (sem alteração de lógica)
+# 2. FUNÇÕES AUXILIARES E CACHE
 # ==============================================================================
 
 @st.cache_data
@@ -154,7 +197,7 @@ def calculate_annual_maxima(_df, duration):
 def calculate_idf_curves(series, duration, trs_np):
     """Ajusta as distribuições Gumbel e Log-Pearson III."""
     if len(series) < 5:
-        return None, None, None, None
+        return None, None, None, series, None, None    
     
     mu_g, beta_g = gumbel_r.fit(series.values)
     ks_stat, ks_p = kstest(series.values, 'gumbel_r', args=(mu_g, beta_g))
@@ -180,7 +223,7 @@ def calculate_idf_curves(series, duration, trs_np):
     params_gumbel = {"mu": mu_g, "beta": beta_g, "ks_p": ks_p, "ad_stat": ad_result.statistic, "ad_crit": ad_result.critical_values}
     params_lp3 = {"mean_log": mean_log, "std_log": std_log, "skew": skew}
 
-    return df_idf, params_gumbel, params_lp3, series
+    return df_idf, params_gumbel, params_lp3, series, (mu_g, beta_g), (mean_log, std_log, skew)
 
 class PDF(FPDF):
     def header(self):
@@ -248,275 +291,364 @@ def generate_professional_pdf(df_idf, fig_path, duration, params_gumbel, params_
 # 3. INTERFACE DO DASHBOARD
 # ==============================================================================
 
-st.title("💧 Sistema de Análise Pluviométrica (SAP-IDF)")
-st.caption("Uma ferramenta para análise de séries históricas de chuva e geração de curvas Intensidade-Duração-Frequência.")
-st.divider()
+# Gerenciamento de estado para o DataFrame
+if 'df' not in st.session_state:
+    st.session_state['df'] = None
 
-with st.sidebar:
-    st.header("Configurações da Análise")
-    uploaded_file = st.file_uploader(
-        "Carregue seu arquivo CSV",
-        type=["csv"],
-        help="O arquivo deve conter colunas como 'datahora' e 'precipitacao'."
-    )
+# --- Página Inicial para Carregamento de Arquivo ---
+if st.session_state['df'] is None:
+    st.title("Sistema de Análise Pluviométrica (SAP-IDF)")
+    st.caption("Uma ferramenta para análise de séries históricas de chuva e geração de curvas Intensidade-Duração-Frequência.")
+    st.divider()
 
-if uploaded_file is None:
     col1, col2 = st.columns([1, 4])
     with col1:
-        st.image("https://cdn-icons-png.flaticon.com/512/263/263884.png", width=150)
+        st.markdown("<h1 style='text-align: center;'><i class='fas fa-cloud-rain fa-3x'></i></h1>", unsafe_allow_html=True)
     with col2:
         st.header("Bem-vindo ao SAP-IDF!")
         st.markdown("""
-        Para começar, por favor, **carregue seus dados de chuva horária** usando o painel à esquerda.
+        Para começar, **carregue seus dados de chuva horária (.csv)**.
 
         **Passos:**
-        1.  Clique em **'Browse files'** na barra lateral.
-        2.  Selecione o seu arquivo no formato `.csv`.
-        3.  Aguarde o processamento e explore as abas de análise.
+        1.  Clique em **'Browse files'**.
+        2.  Selecione o arquivo.
+        3.  Aguarde o processamento.
         """)
-    st.stop()
-
-try:
-    with st.spinner("Analisando seu arquivo... Isso pode levar alguns segundos."):
-        df = load_data(uploaded_file)
-except Exception as e:
-    st.error(f"❌ **Erro ao processar o arquivo:** {e}")
-    st.stop()
-
-with st.sidebar:
-    st.success(f"Arquivo **{uploaded_file.name}** carregado!")
-    st.divider()
-    anos_disponiveis = sorted(df.index.year.unique())
-    ano_min_selecionado, ano_max_selecionado = st.select_slider(
-        "Selecione o intervalo de anos:",
-        options=anos_disponiveis,
-        value=(anos_disponiveis[0], anos_disponiveis[-1])
+    
+    uploaded_file = st.file_uploader(
+        "Carregue seu arquivo CSV",
+        type=["csv"],
+        help="O arquivo deve conter colunas 'datahora' e 'precipitacao'."
     )
 
-df_filtrado = df[(df.index.year >= ano_min_selecionado) & (df.index.year <= ano_max_selecionado)]
+    if uploaded_file is not None:
+        try:
+            with st.spinner("Analisando seu arquivo..."):
+                st.session_state['df'] = load_data(uploaded_file)
+            st.success(f"Arquivo **{uploaded_file.name}** carregado com sucesso!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo: {e}")
+            st.session_state['df'] = None
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 **Visão Geral**", 
-    "📈 **Máximas Anuais**", 
-    "📉 **Curvas IDF**", 
-    "📄 **Relatório PDF**"
-])
-
-with tab1:
-    st.header("Resumo do Período Selecionado")
+# --- Exibir o dashboard completo apenas se o arquivo foi carregado ---
+if st.session_state['df'] is not None:
+    df = st.session_state['df']
     
-    with st.container():
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Período Analisado", f"{ano_min_selecionado}–{ano_max_selecionado}")
-        col2.metric("Total de Registros", f"{len(df_filtrado):,}")
-        col3.metric("Precipitação Total", f"{df_filtrado['precipitacao'].sum():,.1f} mm")
-        col4.metric("Máximo Horário", f"{df_filtrado['precipitacao'].max():.1f} mm")
+    ano_min_disponivel = df.index.year.min()
+    ano_max_disponivel = df.index.year.max()
+    df_analise = df 
 
-    st.subheader("Série Temporal da Precipitação")
-    with st.container():
-        aggregation_level = st.selectbox(
-            "Resolução do gráfico:",
-            options=['Diária', 'Semanal', 'Mensal', 'Horária (p/ períodos curtos)'],
-            index=0
-        )
+    tab1, tab2, tab3_idf, tab4_chuva_projeto, tab5_relatorio = st.tabs([
+        "Visão Geral",
+        "Máximas Anuais",
+        "Curvas IDF",
+        "Chuva de Projeto",
+        "Relatório PDF"
+    ])
 
-        df_plot = df_filtrado['precipitacao']
-        if aggregation_level == 'Diária':
-            df_plot = df_plot.resample('D').sum()
-        elif aggregation_level == 'Semanal':
-            df_plot = df_plot.resample('W').sum()
-        elif aggregation_level == 'Mensal':
-            df_plot = df_plot.resample('ME').sum()
-        else:
-            if len(df_filtrado) > 8760: # Limite de ~1 ano
-                st.warning("A visualização horária foi desativada pois o período é muito longo. Escolha outra resolução ou um intervalo menor.")
-                st.stop()
-
-        fig_serie = px.line(x=df_plot.index, y=df_plot.values, labels={'y': 'Precipitação (mm)', 'x': 'Data'})
-        # ALTERADO: Template do gráfico para 'plotly_dark'
-        fig_serie.update_layout(template="plotly_dark", height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        fig_serie.update_traces(line_color= 'var(--primary-color)', line_width=1.5)
-        st.plotly_chart(fig_serie, use_container_width=True)
-
-    col_resumo, col_hist = st.columns(2)
-    with col_resumo:
-        st.subheader("Resumo Anual")
-        resumo_anual = df_filtrado['precipitacao'].resample("YE").agg(['sum', 'max']).rename(
-            columns={'sum': 'Total (mm)', 'max': 'Máx. Horário (mm)'}
-        )
-        resumo_anual.index.name = "Ano"
-        st.dataframe(resumo_anual, use_container_width=True)
-    
-    with col_hist:
-        st.subheader("Distribuição das Chuvas > 1 mm")
-        valores_chuva = df_filtrado["precipitacao"][df_filtrado["precipitacao"] > 1]
-        if not valores_chuva.empty:
-            fig_hist = px.histogram(valores_chuva, nbins=40, labels={'value': 'Precipitação (mm)'})
-            # ALTERADO: Template do gráfico para 'plotly_dark'
-            fig_hist.update_layout(template="plotly_dark", showlegend=False, yaxis_title="Frequência", bargap=0.1, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            fig_hist.update_traces(marker_color='#009E73')
-            st.plotly_chart(fig_hist, use_container_width=True)
-        else:
-            st.info("Nenhuma hora com chuva > 1 mm no período selecionado.")
-
-with tab2:
-    st.header("Análise das Máximas Anuais")
-    duracao_max = st.selectbox(
-        "Selecione a duração para acumulação (horas):", 
-        [1, 2, 3, 6, 12, 24], 
-        key='duracao_maximas'
-    )
-    
-    with st.spinner(f"Calculando máximas anuais para {duracao_max}h..."):
-        maximas_anuais = calculate_annual_maxima(df_filtrado, duracao_max)
-    
-    if maximas_anuais.empty:
-        st.warning("Não foi possível calcular as máximas anuais. Verifique o intervalo de anos selecionado.")
-    else:
-        df_maximas = maximas_anuais.reset_index()
-        df_maximas.columns = ["Ano", f"Precipitação Máxima (mm)"]
+    with tab1:
+        st.markdown("## <i class='fas fa-chart-bar'></i> Visão Geral dos Dados", unsafe_allow_html=True)
         
-        fig_maximas = px.bar(
-            df_maximas, x="Ano", y="Precipitação Máxima (mm)",
-            title=f"Máximas Anuais para Acumulação de {duracao_max}h",
-            text_auto=False # ALTERADO: Mudado de '.2s' para False para mostrar valores reais
-        )
-        # ALTERADO: Template do gráfico para 'plotly_dark'
-        fig_maximas.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        fig_maximas.update_traces(marker_color='#56B4E9')
-        st.plotly_chart(fig_maximas, use_container_width=True)
-        
-        with st.expander("Ver tabela de dados das máximas anuais"):
-            st.dataframe(df_maximas.set_index("Ano"), use_container_width=True)
+        with st.container():
+            col1, col2, col3 = st.columns(3) 
+            col1.metric("Período Analisado", f"{ano_min_disponivel}–{ano_max_disponivel}")
+            col2.metric("Total de Registros", f"{len(df_analise):,}")
+            col3.metric("Máximo Horário", f"{df_analise['precipitacao'].max():.1f} mm")
 
-with tab3:
-    st.header("Geração de Curvas Intensidade-Duração-Frequência")
-    duracao_idf = st.selectbox(
-        "Escolha a duração para o ajuste estatístico (horas):", 
-        [1, 2, 3, 6, 12, 24], 
-        key='duracao_idf'
-    )
-    
-    trs = [2, 5, 10, 25, 50, 100]
-    
-    with st.spinner(f"Ajustando curvas para duração de {duracao_idf}h..."):
-        df_idf, params_gumbel, params_lp3, serie_maximas = calculate_idf_curves(
-            calculate_annual_maxima(df_filtrado, duracao_idf), 
-            duracao_idf, 
-            np.array(trs)
+        st.subheader("Série Temporal da Precipitação (Horária)")
+        fig_hourly = go.Figure(data=go.Scatter(x=df_analise.index, y=df_analise['precipitacao'],   
+                                                 mode='lines', name='Precipitação Horária',
+                                                 line=dict(color='#009E73', width=1)))
+        fig_hourly.update_layout(
+            template="plotly_dark",
+            height=400,
+            paper_bgcolor='rgba(0,0,0,0)',    
+            plot_bgcolor='rgba(0,0,0,0)',
+            xaxis_title="Data",
+            yaxis_title="Precipitação (mm)",
+            title="Precipitação Horária Registrada"
         )
-
-    if df_idf is None:
-        st.warning("A série histórica é muito curta para um ajuste estatístico confiável (requer no mínimo 5 anos de dados).")
-    else:
-        st.session_state['df_idf'] = df_idf
-        st.session_state['params_gumbel'] = params_gumbel
-        st.session_state['params_lp3'] = params_lp3
+        st.plotly_chart(fig_hourly, use_container_width=True, config={'displayModeBar': False})
         
-        fig_idf = go.Figure()
-        fig_idf.add_trace(go.Scatter(
-            x=df_idf["TR (anos)"], y=df_idf[f"Gumbel_{duracao_idf}h (mm)"], 
-            mode='lines+markers', name='Gumbel', line=dict(color='#D55E00')
-        ))
-        fig_idf.add_trace(go.Scatter(
-            x=df_idf["TR (anos)"], y=df_idf[f"LP3_{duracao_idf}h (mm)"],
-            mode='lines+markers', name='Log-Pearson III', line=dict(color='#0072B2')
-        ))
-        # ALTERADO: Template do gráfico para 'plotly_dark'
-        fig_idf.update_layout(
-            title=f"Precipitação Máxima Estimada vs. Período de Retorno (Duração: {duracao_idf}h)",
-            xaxis_title="Período de Retorno (anos)", yaxis_title="Precipitação Máxima (mm)",
-            xaxis_type="log", template="plotly_dark",
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
-        )
-        st.plotly_chart(fig_idf, use_container_width=True)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-            # Salva o gráfico com fundo BRANCO para o PDF
-            # Crie uma cópia da figura e altere o template para "plotly_white" ou defina as cores explicitamente
-            fig_idf_for_pdf = go.Figure(fig_idf) # Cria uma cópia da figura
-            fig_idf_for_pdf.update_layout(template="plotly_white", paper_bgcolor='white', plot_bgcolor='white')
-            # Você também pode ajustar a cor do texto e das linhas para serem visíveis em fundo branco
-            fig_idf_for_pdf.update_layout(
-                font=dict(color="black"),  # Altera a cor do texto para preto
-                xaxis=dict(gridcolor="lightgrey", linecolor="black"),
-                yaxis=dict(gridcolor="lightgrey", linecolor="black")
+        st.subheader("Série Temporal da Precipitação (Agregada)")
+        with st.container():
+            aggregation_level = st.selectbox(
+                "Agregação:", 
+                options=['Diária', 'Mensal', 'Anual'],
+                index=0
             )
-            # Garanta que as cores das linhas dos traços também sejam visíveis em fundo branco
-            for trace in fig_idf_for_pdf.data:
-                if isinstance(trace, go.Scatter):
-                    # Se as linhas são muito claras no modo dark, garanta que sejam escuras o suficiente no modo light
-                    if trace.line.color == '#D55E00': # Cor original Gumbel
-                        trace.line.color = '#D55E00' # Mantém se já for bom, ou muda para algo como 'darkorange'
-                    if trace.line.color == '#0072B2': # Cor original LP3
-                        trace.line.color = '#0072B2' # Mantém se já for bom, ou muda para algo como 'darkblue'
 
-            fig_idf_for_pdf.write_image(tmpfile.name, scale=2, format="png", engine="kaleido")
-            st.session_state['grafico_path'] = tmpfile.name
-        
-        # --- ALTERADO: AJUSTE ESTATÍSTICO AGORA ACIMA DA TABELA ---
-        st.subheader("Ajuste Estatístico")
-        
-        st.markdown("---")
-        st.markdown("### **Distribuição Gumbel**")
-        col_mu, col_beta, col_ks = st.columns(3)
-        with col_mu:
-            st.metric(label="Parâmetro de Posição (mu)", value=f"{params_gumbel['mu']:.2f} mm")
-        with col_beta:
-            st.metric(label="Parâmetro de Escala (beta)", value=f"{params_gumbel['beta']:.2f} mm")
-        with col_ks:
-            st.metric(label="Teste K-S (p-valor)", value=f"{params_gumbel['ks_p']:.3f}", 
-                      delta="Boa aderência" if params_gumbel['ks_p'] > 0.05 else "Aderência fraca (α=5%)", delta_color="normal")
-        
-        st.markdown("---")
-        st.markdown("### **Distribuição Log-Pearson III**")
-        col_mean, col_std, col_skew = st.columns(3)
-        with col_mean:
-            st.metric(label="Média (log10)", value=f"{params_lp3['mean_log']:.3f}")
-        with col_std:
-            st.metric(label="Desvio Padrão (log10)", value=f"{params_lp3['std_log']:.3f}")
-        with col_skew:
-            st.metric(label="Coef. de Assimetria (log10)", value=f"{params_lp3['skew']:.3f}")
-        # --- FIM DA ALTERAÇÃO DO AJUSTE ESTATÍSTICO ---
+            df_plot = df_analise['precipitacao']
+            if aggregation_level == 'Diária':
+                df_plot = df_plot.resample('D').sum()
+            elif aggregation_level == 'Mensal':
+                df_plot = df_plot.resample('ME').sum()
+            elif aggregation_level == 'Anual':
+                df_plot = df_plot.resample('YE').sum()
 
-        # Tabela de Resultados (agora abaixo do Ajuste Estatístico)
-        st.subheader("Resultados")
-        st.dataframe(df_idf.style.format("{:.2f}"))
+            fig_serie = px.line(x=df_plot.index, y=df_plot.values, labels={'y': 'Precipitação (mm)', 'x': 'Data'})
+            fig_serie.update_layout(template="plotly_dark", height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            fig_serie.update_traces(line_color= 'var(--primary-color)', line_width=1.5)
+            st.plotly_chart(fig_serie, use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("Resumos Estatísticos Anuais e Distribuição")
         
-        csv_data = df_idf.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Baixar Tabela (CSV)", csv_data, f"curvas_IDF_{duracao_idf}h.csv", "text/csv")
+        col_resumo, col_hist = st.columns([0.8, 1.2], gap="large") 
+        
+        with col_resumo:
+            st.markdown("**Precipitação Anual Total**")
+            resumo_anual = df_analise['precipitacao'].resample("YE").agg(['sum']).rename(
+                columns={'sum': 'Total (mm)'}
+            )
+            resumo_anual.index = resumo_anual.index.year
+            resumo_anual.index.name = "Ano"
+            st.dataframe(resumo_anual, use_container_width=True, height=250)
+        
+        with col_hist:
+            st.markdown("**Distribuição de Chuvas Horárias**")
+            valores_chuva = df_analise["precipitacao"][df_analise["precipitacao"] > 1]
+            if not valores_chuva.empty:
+                fig_hist = px.histogram(valores_chuva, nbins=40, labels={'value': 'Precipitação (mm)'})
+                fig_hist.update_layout(template="plotly_dark", showlegend=False, yaxis_title="Frequência", bargap=0.1, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300)
+                fig_hist.update_traces(marker_color='#009E73')
+                st.plotly_chart(fig_hist, use_container_width=True)
+            else:
+                st.info("Nenhuma chuva > 1 mm detectada.") 
+
+    with tab2:
+        st.markdown("## <i class='fas fa-chart-line'></i> Análise de Máximas Anuais", unsafe_allow_html=True)
+        duracao_max = st.selectbox(
+            "Duração (horas):",
+            [1, 2, 3, 6, 12, 24],
+            key='duracao_maximas'
+        )
+        
+        with st.spinner(f"Calculando máximas para {duracao_max}h..."):
+            maximas_anuais = calculate_annual_maxima(df_analise, duracao_max)
+        
+        if maximas_anuais.empty:
+            st.warning("Dados insuficientes para máximas anuais.")
+        else:
+            df_maximas = maximas_anuais.reset_index()
+            df_maximas.columns = ["Ano", "Precipitação Máxima (mm)"]
             
-        with st.expander("Ver detalhes da série de máximas anuais"):
-            st.write(f"**Série de Máximas Anuais ({duracao_idf}h) utilizada:**")
-            st.dataframe(serie_maximas)
+            fig_maximas = px.bar(
+                df_maximas, x="Ano", y="Precipitação Máxima (mm)",
+                title=f"Máximas Anuais ({duracao_max}h)",
+                text_auto=".1f"
+            )
+            fig_maximas.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            fig_maximas.update_traces(marker_color='#56B4E9', textposition='outside')
+            st.plotly_chart(fig_maximas, use_container_width=True)
+            
+            with st.expander("Ver dados"):
+                st.dataframe(df_maximas.set_index("Ano"), use_container_width=True)
 
-with tab4:
-    st.header("Gerar Relatório em PDF")
-    st.markdown("Após calcular as curvas na aba **'📉 Curvas IDF'**, você pode gerar um relatório consolidado em PDF com os resultados.")
+    with tab3_idf:
+        st.markdown("## <i class='fas fa-chart-area'></i> Curvas Intensidade-Duração-Frequência (IDF)", unsafe_allow_html=True)
+        st.markdown("Calcule e visualize as **curvas IDF** e use os parâmetros para **chuva de projeto**.")
 
-    if 'df_idf' in st.session_state:
-        st.success(f"Tudo pronto para gerar o relatório para a duração de **{st.session_state.duracao_idf} horas**.")
+        duracao_idf = st.selectbox(
+            "Duração para ajuste (horas):",
+            [1, 2, 3, 6, 12, 24],
+            key='duracao_idf'
+        )
         
-        if st.button("📄 Gerar e Baixar PDF"):
-            with st.spinner("Montando seu relatório..."):
-                pdf_obj = generate_professional_pdf(
-                    st.session_state['df_idf'],
-                    st.session_state['grafico_path'],
-                    st.session_state.duracao_idf,
-                    st.session_state['params_gumbel'],
-                    st.session_state['params_lp3']
+        trs = [2, 5, 10, 25, 50, 100]
+        
+        with st.spinner(f"Ajustando curvas para {duracao_idf}h..."):
+            df_idf, params_gumbel, params_lp3, serie_maximas, gumbel_params_tuple, lp3_params_tuple = calculate_idf_curves(
+                calculate_annual_maxima(df_analise, duracao_idf),
+                duracao_idf,
+                np.array(trs)
+            )
+
+        if df_idf is None:
+            st.warning("Série curta para ajuste estatístico (mínimo de 5 anos de dados).")
+        else:
+            st.session_state['gumbel_params'] = gumbel_params_tuple
+            st.session_state['lp3_params'] = lp3_params_tuple
+            st.session_state['duracao_idf_calculada'] = duracao_idf
+
+            st.session_state['df_idf'] = df_idf
+            st.session_state['params_gumbel'] = params_gumbel
+            st.session_state['params_lp3'] = params_lp3
+            
+            fig_idf = go.Figure()
+            fig_idf.add_trace(go.Scatter(
+                x=df_idf["TR (anos)"], y=df_idf[f"Gumbel_{duracao_idf}h (mm)"],
+                mode='lines+markers', name='Gumbel', line=dict(color='#D55E00')
+            ))
+            fig_idf.add_trace(go.Scatter(
+                x=df_idf["TR (anos)"], y=df_idf[f"LP3_{duracao_idf}h (mm)"],
+                mode='lines+markers', name='Log-Pearson III', line=dict(color='#0072B2')
+            ))
+            fig_idf.update_layout(
+                title=f"Precipitação Estimada vs. Período de Retorno (Duração: {duracao_idf}h)",
+                xaxis_title="Período de Retorno (anos)", yaxis_title="Precipitação (mm)",
+                xaxis_type="log", template="plotly_dark",
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+            )
+            st.plotly_chart(fig_idf, use_container_width=True)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                fig_idf_for_pdf = go.Figure(fig_idf)    
+                fig_idf_for_pdf.update_layout(template="plotly_white", paper_bgcolor='white', plot_bgcolor='white')
+                fig_idf_for_pdf.update_layout(
+                    font=dict(color="black"),  
+                    xaxis=dict(gridcolor="lightgrey", linecolor="black"),
+                    yaxis=dict(gridcolor="lightgrey", linecolor="black")
                 )
+                for trace in fig_idf_for_pdf.data:
+                    if isinstance(trace, go.Scatter):
+                        if trace.line.color == '#D55E00':    
+                            trace.line.color = '#D55E00'    
+                        if trace.line.color == '#0072B2':    
+                            trace.line.color = '#0072B2'    
+
+                fig_idf_for_pdf.write_image(tmpfile.name, scale=2, format="png")
+                st.session_state['grafico_path'] = tmpfile.name
+            
+            st.subheader("Resultados IDF")
+            st.dataframe(df_idf.style.format("{:.2f}"))
+            
+            csv_data = df_idf.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Baixar Tabela (CSV)", csv_data, f"curvas_IDF_{duracao_idf}h.csv", "text/csv")
+
+            st.markdown("---")
+            st.subheader("Ajuste Estatístico")
+            
+            st.markdown("### **Gumbel**")
+            col_mu, col_beta, col_ks = st.columns(3)
+            with col_mu:
+                st.metric(label="Posição (mu)", value=f"{params_gumbel['mu']:.2f} mm")
+            with col_beta:
+                st.metric(label="Escala (beta)", value=f"{params_gumbel['beta']:.2f} mm")
+            with col_ks:
+                st.metric(label="K-S (p-valor)", value=f"{params_gumbel['ks_p']:.3f}",
+                                 delta="Boa aderência" if params_gumbel['ks_p'] > 0.05 else "Aderência fraca (α=5%)", delta_color="normal")
+            
+            st.markdown("---")
+            st.markdown("### **Log-Pearson III**")
+            col_mean, col_std, col_skew = st.columns(3)
+            with col_mean:
+                st.metric(label="Média (log10)", value=f"{params_lp3['mean_log']:.3f}")
+            with col_std:
+                st.metric(label="Desvio Padrão (log10)", value=f"{params_lp3['std_log']:.3f}")
+            with col_skew:
+                st.metric(label="Assimetria (log10)", value=f"{params_lp3['skew']:.3f}")
+
+    with tab4_chuva_projeto:
+        st.markdown("## <i class='fas fa-cloud-showers-heavy'></i> Cálculo de Chuva de Projeto", unsafe_allow_html=True)
+
+        with st.container(border=True):
+            st.subheader("Parâmetros de Entrada")
+            col_input_params, col_input_method = st.columns([1, 1])
+
+            with col_input_params:
+                tr_tab4 = st.number_input(
+                    "Período de Retorno (anos):",
+                    min_value=1,
+                    step=1,
+                    value=10,
+                    key="tr_tab4_separate"
+                )
+                dur_tab4 = st.number_input(
+                    "Duração da Chuva (horas):",
+                    min_value=0.1,
+                    step=0.1,
+                    value=float(st.session_state.get('duracao_idf_calculada', 1.0)), 
+                    key="dur_tab4_separate" 
+                )
+
+            with col_input_method:
+                metodo_tab4 = st.radio(
+                    "Método de Cálculo:",
+                    ["Gumbel", "Log-Pearson III"],
+                    key="metodo_tab4",
+                    horizontal=False
+                )
+            
+            st.markdown("---")
+            col_calc_btn_left, col_calc_btn_center, col_calc_btn_right = st.columns([1, 1, 1])
+            with col_calc_btn_center:
+                if st.button("Calcular Chuva de Projeto", key="btn_calc_tab4_separate", use_container_width=True):
+                    chuva_proj = None
+                    intensidade_proj = None
+
+                    if metodo_tab4 == "Gumbel":
+                        if 'gumbel_params' in st.session_state and st.session_state['gumbel_params'] is not None:
+                            mu_value, beta_value = st.session_state['gumbel_params']
+                            chuva_proj = gumbel_r.ppf(1 - 1/tr_tab4, loc=mu_value, scale=beta_value)
+                        else:
+                            st.error("Parâmetros Gumbel não encontrados. Calcule-os na aba 'Curvas IDF'.")
+                    else:
+                        if 'lp3_params' in st.session_state and st.session_state['lp3_params'] is not None:
+                            mean_log_value, std_log_value, skew_value = st.session_state['lp3_params']
+                            try:
+                                dist_lp3 = pearson3(skew_value, loc=mean_log_value, scale=std_log_value)
+                                chuva_proj = 10 ** dist_lp3.ppf(1 - 1/tr_tab4)
+                            except Exception as e:
+                                st.error(f"Erro no cálculo Log-Pearson III: {e}")
+                        else:
+                            st.error("Parâmetros Log-Pearson III não encontrados. Calcule-os na aba 'Curvas IDF'.")
+
+                    if chuva_proj is not None:
+                        if dur_tab4 > 0:
+                            intensidade_proj = chuva_proj / dur_tab4
+                            st.session_state['chuva_proj_result'] = chuva_proj
+                            st.session_state['intensidade_proj_result'] = intensidade_proj
+                            st.session_state['show_project_results'] = True
+                        else:
+                            st.error("A Duração da Chuva deve ser maior que zero.")
+                            st.session_state['show_project_results'] = False
+                    else:
+                        st.warning("Não foi possível calcular a chuva de projeto. Verifique os parâmetros na aba 'Curvas IDF'.")
+                        st.session_state['show_project_results'] = False
+
+        if st.session_state.get('show_project_results', False):
+            st.markdown("---")
+            with st.container(border=True):
+                st.subheader("Resultados do Cálculo")
+                col_res_chuva, col_res_int = st.columns(2)
                 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                    pdf_obj.output(tmp.name)
-                    with open(tmp.name, "rb") as f:
-                        st.download_button(
-                            "📥 Clique aqui para baixar o Relatório",
-                            f.read(),
-                            f"Relatorio_IDF_{st.session_state.duracao_idf}h.pdf",
-                            "application/pdf"
-                        )
-                os.remove(st.session_state['grafico_path'])
-    else:
-        st.warning("Por favor, gere uma curva na aba '📉 Curvas IDF' primeiro para habilitar esta função.")
+                with col_res_chuva:
+                    st.metric(label="Chuva de Projeto (mm)", value=f"{st.session_state['chuva_proj_result']:.2f}")
+                with col_res_int:
+                    st.metric(label="Intensidade (mm/h)", value=f"{st.session_state['intensidade_proj_result']:.2f}")
+        else:
+            st.markdown("---")
+            st.info("Aguardando o cálculo da chuva de projeto.")
+
+    with tab5_relatorio:
+        st.markdown("## <i class='fas fa-file-alt'></i> Relatório em PDF", unsafe_allow_html=True)
+        st.markdown("Gere um relatório PDF após calcular as curvas na aba **'Curvas IDF'**.")
+
+        if 'df_idf' in st.session_state and st.session_state['df_idf'] is not None and 'grafico_path' in st.session_state:
+            st.success(f"Pronto para gerar relatório para a duração de **{st.session_state.duracao_idf} horas**.")
+            
+            if st.button("Gerar Relatório PDF"):
+                with st.spinner("Gerando relatório..."):
+                    pdf_obj = generate_professional_pdf(
+                        st.session_state['df_idf'],
+                        st.session_state['grafico_path'],
+                        st.session_state.duracao_idf,
+                        st.session_state['params_gumbel'],
+                        st.session_state['params_lp3']
+                    )
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                        pdf_obj.output(tmp.name)
+                        with open(tmp.name, "rb") as f:
+                            st.download_button(
+                                "Baixar Relatório",
+                                f.read(),
+                                f"Relatorio_IDF_{st.session_state.duracao_idf}h.pdf",
+                                "application/pdf"
+                            )
+                    os.remove(st.session_state['grafico_path'])
+        else:
+            st.warning("Por favor, calcule uma curva IDF na aba 'Curvas IDF' primeiro para gerar o relatório.")
